@@ -1,6 +1,5 @@
-package Chat;
+package Brouillon;
 
-import java.awt.BorderLayout;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -10,34 +9,25 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.swing.JFrame;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
-
-public class ChatServer {
+public class ChatServerGUI {
     private static final int PORT = 12345;
     private static Set<ClientHandler> clients = Collections.synchronizedSet(new HashSet<>());
-    private static ChatServerGUI gui; // Interface graphique pour le serveur
 
     public static void main(String[] args) {
-        // Demarrer l'interface graphique du serveur
-        setGui(new ChatServerGUI());
-        getGui().log("Serveur demarre sur le port " + PORT);
-
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+            System.out.println("Serveur en attente sur le port " + PORT);
+
             while (true) {
                 Socket socket = serverSocket.accept();
                 ClientHandler handler = new ClientHandler(socket);
                 getClients().add(handler);
                 new Thread(handler).start();
-                // Le log de la nouvelle connexion est maintenant dans ClientHandler
             }
         } catch (IOException e) {
-            getGui().log("Erreur: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
     static void broadcastMessage(String message, ClientHandler sender) {
         synchronized (getClients()) {
             for (ClientHandler client : getClients()) {
@@ -46,7 +36,6 @@ public class ChatServer {
                 }
             }
         }
-        getGui().log("Message diffuse par " + sender.getUsername() + ": " + message);
     }
 
     static void sendPrivateMessage(String message, String recipient, ClientHandler sender) {
@@ -54,17 +43,17 @@ public class ChatServer {
             boolean recipientFound = false;
             for (ClientHandler client : getClients()) {
                 if (client.getUsername().equals(recipient)) {
-                    client.sendMessage("[Prive de " + sender.getUsername() + "]: " + message);
+                    client.sendMessage("[Privé de " + sender.getUsername() + "]: " + message);
                     recipientFound = true;
                     break;
                 }
             }
+            System.out.println("Envoi d'un message privé à " + recipient + " : " + message);
             if (!recipientFound) {
-                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecte.");
-                sender.sendMessage("Utilisateurs connectes: " + getConnectedUsers());
+                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecté.");
+                sender.sendMessage("Utilisateurs connectés: " + getConnectedUsers());
             }
         }
-        getGui().log("Message prive de " + sender.getUsername() + " a " + recipient + ": " + message);
     }
 
     static void broadcastFile(String fileName, byte[] fileData, ClientHandler sender) {
@@ -75,7 +64,6 @@ public class ChatServer {
                 }
             }
         }
-        getGui().log("Fichier diffuse par " + sender.getUsername() + ": " + fileName);
     }
 
     static void sendPrivateFile(String fileName, byte[] fileData, String recipient, ClientHandler sender) {
@@ -89,10 +77,9 @@ public class ChatServer {
                 }
             }
             if (!recipientFound) {
-                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecte.");
+                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecté.");
             }
         }
-        getGui().log("Fichier prive de " + sender.getUsername() + " a " + recipient + ": " + fileName);
     }
 
     static String getConnectedUsers() {
@@ -109,7 +96,7 @@ public class ChatServer {
         String list = getConnectedUsers();
         synchronized (getClients()) {
             for (ClientHandler client : getClients()) {
-                client.sendMessage("Utilisateurs connectes: " + list);
+                client.sendMessage("Utilisateurs connectés: " + list);
             }
         }
     }
@@ -117,7 +104,6 @@ public class ChatServer {
     static void removeClient(ClientHandler client) {
         getClients().remove(client);
         updateUserList();
-        getGui().log("Deconnexion: " + client.getUsername());
     }
 
     public static Set<ClientHandler> getClients() {
@@ -125,39 +111,7 @@ public class ChatServer {
     }
 
     public static void setClients(Set<ClientHandler> clients) {
-        ChatServer.clients = clients;
-    }
-
-    public static ChatServerGUI getGui() {
-		return gui;
-	}
-	public static void setGui(ChatServerGUI gui) {
-		ChatServer.gui = gui;
-	}
-
-	// Interface graphique pour le serveur
-    static class ChatServerGUI extends JFrame {
-        private JTextArea logArea;
-
-        public ChatServerGUI() {
-            setTitle("Serveur de Chat");
-            setSize(600, 400);
-            setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-
-            logArea = new JTextArea();
-            logArea.setEditable(false);
-            JScrollPane scrollPane = new JScrollPane(logArea);
-
-            add(scrollPane, BorderLayout.CENTER);
-
-            setVisible(true);
-        }
-
-        public void log(String message) {
-            SwingUtilities.invokeLater(() -> {
-                logArea.append(message + "\n");
-            });
-        }
+        ChatServerGUI.clients = clients;
     }
 }
 
@@ -186,12 +140,7 @@ class ClientHandler implements Runnable {
             // Demander l'identifiant de l'utilisateur
             out.writeUTF("Entrez votre nom d'utilisateur:");
             username = in.readUTF();
-            
-            // Mettre a jour la liste des utilisateurs connectes
-            ChatServer.updateUserList();
-            
-            // Log de la nouvelle connexion avec le nom d'utilisateur
-            ChatServer.getGui().log("Nouvelle connexion: " + username);
+            ChatServerGUI.updateUserList();
 
             while (true) {
                 String type = in.readUTF();
@@ -200,16 +149,16 @@ class ClientHandler implements Runnable {
                     if (msg.equalsIgnoreCase("exit")) {
                         break;
                     }
-                    ChatServer.broadcastMessage(msg, this);
+                    ChatServerGUI.broadcastMessage(msg, this);
                 } else if (type.equals("private")) {
                     String recipient = in.readUTF();
                     String msg = in.readUTF();
-                    ChatServer.sendPrivateMessage(msg, recipient, this);
+                    ChatServerGUI.sendPrivateMessage(msg, recipient, this);
                 } else if (type.equals("checkUser")) {
                     String recipient = in.readUTF();
                     boolean userExists = false;
-                    synchronized (ChatServer.getClients()) {
-                        for (ClientHandler client : ChatServer.getClients()) {
+                    synchronized (ChatServerGUI.getClients()) {
+                        for (ClientHandler client : ChatServerGUI.getClients()) {
                             if (client.getUsername().equals(recipient)) {
                                 userExists = true;
                                 break;
@@ -219,7 +168,7 @@ class ClientHandler implements Runnable {
                     if (userExists) {
                         out.writeUTF("valid");
                     } else {
-                        out.writeUTF(ChatServer.getConnectedUsers());
+                        out.writeUTF(ChatServerGUI.getConnectedUsers());
                     }
                 } else if (type.equals("file")) {
                     String recipient = in.readUTF(); // "all" pour broadcast, sinon le nom du destinataire
@@ -229,9 +178,9 @@ class ClientHandler implements Runnable {
                     in.readFully(fileData);
 
                     if (recipient.equals("all")) {
-                        ChatServer.broadcastFile(fileName, fileData, this);
+                        ChatServerGUI.broadcastFile(fileName, fileData, this);
                     } else {
-                        ChatServer.sendPrivateFile(fileName, fileData, recipient, this);
+                        ChatServerGUI.sendPrivateFile(fileName, fileData, recipient, this);
                     }
                 }
             }
@@ -243,7 +192,7 @@ class ClientHandler implements Runnable {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            ChatServer.removeClient(this);
+            ChatServerGUI.removeClient(this);
         }
     }
 

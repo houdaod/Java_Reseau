@@ -1,7 +1,6 @@
 package Chat;
 
 import java.awt.BorderLayout;
-import java.awt.Toolkit;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -20,14 +19,13 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import javax.swing.filechooser.FileSystemView;
 
 public class ChatClient {
     private static DataInputStream in;
     private static DataOutputStream out;
     private static JTextArea chatArea;
     private static JProgressBar progressBar;
-    private static File downloadDir = FileSystemView.getFileSystemView().getHomeDirectory();
+    private static File downloadDir = new File(System.getProperty("user.home"));
     private static String username;
 
     public static void main(String[] args) {
@@ -51,7 +49,6 @@ public class ChatClient {
                             String msg = in.readUTF();
                             SwingUtilities.invokeLater(() -> {
                                 chatArea.append(msg + "\n");
-                                Toolkit.getDefaultToolkit().beep();
                             });
                         } else if (type.equals("file")) {
                             String fileName = in.readUTF();
@@ -65,7 +62,7 @@ public class ChatClient {
                             }
 
                             SwingUtilities.invokeLater(() -> {
-                                chatArea.append("Fichier reçu: " + outFile.getAbsolutePath() + "\n");
+                                chatArea.append("Fichier recu: " + outFile.getAbsolutePath() + "\n");
                             });
                         }
                     }
@@ -84,7 +81,7 @@ public class ChatClient {
 
     private static void createGUI() {
         JFrame frame = new JFrame("Client Chat - " + username);
-        frame.setSize(500, 400);
+        frame.setSize(600, 400);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         chatArea = new JTextArea();
@@ -93,11 +90,12 @@ public class ChatClient {
 
         JTextField messageField = new JTextField();
         JButton sendButton = new JButton("Envoyer");
-        JButton privateButton = new JButton("Message Privé");
-        JButton dirButton = new JButton("Choisir Dossier de téléchargement");
+        JButton privateButton = new JButton("Prive");
+        JButton broadcastButton = new JButton("Tout le monde");
+        JButton dirButton = new JButton("Choisir Dossier");
         progressBar = new JProgressBar();
 
-        // Action pour envoyer un message
+        // Action pour envoyer un message public
         sendButton.addActionListener(e -> {
             String msg = messageField.getText();
             if (!msg.isEmpty()) {
@@ -105,7 +103,7 @@ public class ChatClient {
                     out.writeUTF("message");
                     out.writeUTF(msg);
                     SwingUtilities.invokeLater(() -> {
-                        chatArea.append("Moi: " + msg + "\n");
+                        chatArea.append("Moi (a tous): " + msg + "\n");
                         messageField.setText("");
                     });
                 } catch (IOException ex) {
@@ -117,10 +115,10 @@ public class ChatClient {
             }
         });
 
-        // Action pour envoyer un message privé ou un fichier
+        // Action pour envoyer un message ou fichier en prive
         privateButton.addActionListener(e -> {
             String[] options = {"Message", "Fichier"};
-            int choice = JOptionPane.showOptionDialog(null, "Choisissez une option", "Message Privé",
+            int choice = JOptionPane.showOptionDialog(null, "Choisissez une option", "Prive",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
 
             if (choice == 0) { // Message
@@ -133,21 +131,21 @@ public class ChatClient {
                             out.writeUTF(recipient);
                             out.writeUTF(msg);
                             SwingUtilities.invokeLater(() -> {
-                                chatArea.append("Privé à " + recipient + ": " + msg + "\n");
+                                chatArea.append("Prive a " + recipient + ": " + msg + "\n");
                             });
                         } catch (IOException ex) {
                             SwingUtilities.invokeLater(() -> {
-                                chatArea.append("Erreur lors de l'envoi du message privé.\n");
+                                chatArea.append("Erreur lors de l'envoi du message prive.\n");
                             });
                             ex.printStackTrace();
                         }
                     }
                 }
             } else if (choice == 1) { // Fichier
-                String recipient = JOptionPane.showInputDialog("Destinataire (ou 'all' pour tout le monde):");
+                String recipient = JOptionPane.showInputDialog("Destinataire:");
                 if (recipient != null && !recipient.isEmpty()) {
                     JFileChooser fileChooser = new JFileChooser();
-                    fileChooser.setCurrentDirectory(FileSystemView.getFileSystemView().getHomeDirectory());
+                    fileChooser.setCurrentDirectory(downloadDir);
                     int result = fileChooser.showOpenDialog(null);
                     if (result == JFileChooser.APPROVE_OPTION) {
                         File file = fileChooser.getSelectedFile();
@@ -157,16 +155,49 @@ public class ChatClient {
             }
         });
 
-        // Action pour choisir un dossier de téléchargement
+        // Action pour envoyer un message ou fichier a tout le monde
+        broadcastButton.addActionListener(e -> {
+            String[] options = {"Message", "Fichier"};
+            int choice = JOptionPane.showOptionDialog(null, "Choisissez une option", "Tout le monde",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
+
+            if (choice == 0) { // Message
+                String msg = JOptionPane.showInputDialog("Message pour tout le monde:");
+                if (msg != null && !msg.isEmpty()) {
+                    try {
+                        out.writeUTF("message");
+                        out.writeUTF(msg);
+                        SwingUtilities.invokeLater(() -> {
+                            chatArea.append("Moi (a tous): " + msg + "\n");
+                        });
+                    } catch (IOException ex) {
+                        SwingUtilities.invokeLater(() -> {
+                            chatArea.append("Erreur lors de l'envoi du message.\n");
+                        });
+                        ex.printStackTrace();
+                    }
+                }
+            } else if (choice == 1) { // Fichier
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setCurrentDirectory(downloadDir);
+                int result = fileChooser.showOpenDialog(null);
+                if (result == JFileChooser.APPROVE_OPTION) {
+                    File file = fileChooser.getSelectedFile();
+                    new Thread(() -> sendFile(file, "all")).start();
+                }
+            }
+        });
+
+        // Action pour choisir un dossier de telechargement
         dirButton.addActionListener(e -> {
             JFileChooser dirChooser = new JFileChooser();
             dirChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            dirChooser.setCurrentDirectory(FileSystemView.getFileSystemView().getHomeDirectory());
+            dirChooser.setCurrentDirectory(downloadDir);
             int result = dirChooser.showOpenDialog(null);
             if (result == JFileChooser.APPROVE_OPTION) {
                 downloadDir = dirChooser.getSelectedFile();
                 SwingUtilities.invokeLater(() -> {
-                    chatArea.append("Dossier de téléchargement: " + downloadDir.getAbsolutePath() + "\n");
+                    chatArea.append("Dossier de telechargement: " + downloadDir.getAbsolutePath() + "\n");
                 });
             }
         });
@@ -178,10 +209,11 @@ public class ChatClient {
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.add(privateButton, BorderLayout.WEST);
+        bottomPanel.add(broadcastButton, BorderLayout.CENTER);
         bottomPanel.add(dirButton, BorderLayout.EAST);
         bottomPanel.add(progressBar, BorderLayout.SOUTH);
 
-        // Ajout des composants à la fenêtre
+        // Ajout des composants a la fenetre
         frame.add(scrollPane, BorderLayout.CENTER);
         frame.add(panel, BorderLayout.NORTH);
         frame.add(bottomPanel, BorderLayout.SOUTH);
@@ -192,7 +224,7 @@ public class ChatClient {
     private static void sendFile(File file, String recipient) {
         if (!file.exists()) {
             SwingUtilities.invokeLater(() -> {
-                chatArea.append("Erreur: Fichier non trouvé.\n");
+                chatArea.append("Erreur: Fichier non trouve.\n");
             });
             return;
         }
@@ -219,8 +251,8 @@ public class ChatClient {
             }
 
             SwingUtilities.invokeLater(() -> {
-                chatArea.append("Fichier envoyé: " + file.getName() + "\n");
-                progressBar.setValue(0); // Réinitialiser la barre de progression
+                chatArea.append("Fichier envoye: " + file.getName() + "\n");
+                progressBar.setValue(0); // Reinitialiser la barre de progression
             });
         } catch (IOException e) {
             SwingUtilities.invokeLater(() -> {
