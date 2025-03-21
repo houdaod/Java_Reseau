@@ -1,6 +1,8 @@
 package Chat;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Font;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -18,252 +20,204 @@ import javax.swing.SwingUtilities;
 public class ChatServer {
     private static final int PORT = 12345;
     private static Set<ClientHandler> clients = Collections.synchronizedSet(new HashSet<>());
-    private static ChatServerGUI gui; // Interface graphique pour le serveur
+    private static JTextArea logArea;
 
     public static void main(String[] args) {
-        // Demarrer l'interface graphique du serveur
-        setGui(new ChatServerGUI());
-        getGui().log("Serveur demarre sur le port " + PORT);
-
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            while (true) {
-                Socket socket = serverSocket.accept();
-                ClientHandler handler = new ClientHandler(socket);
-                getClients().add(handler);
-                new Thread(handler).start();
-                // Le log de la nouvelle connexion est maintenant dans ClientHandler
-            }
-        } catch (IOException e) {
-            getGui().log("Erreur: " + e.getMessage());
-            e.printStackTrace();
-        }
+        SwingUtilities.invokeLater(ChatServer::createAndShowGUI);
+        startServer();
     }
-    static void broadcastMessage(String message, ClientHandler sender) {
-        synchronized (getClients()) {
-            for (ClientHandler client : getClients()) {
-                if (client != sender) {
-                    client.sendMessage("[" + sender.getUsername() + "]: " + message);
+
+    private static void createAndShowGUI() {
+        JFrame frame = new JFrame("Serveur Chat");
+        frame.setSize(600, 400);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setBackground(new Color(30, 30, 30));
+        logArea.setForeground(new Color(0, 255, 0));
+        logArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        JScrollPane scrollPane = new JScrollPane(logArea);
+
+        frame.add(scrollPane, BorderLayout.CENTER);
+        frame.setVisible(true);
+
+        log("Interface serveur prête.");
+    }
+
+    private static void startServer() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                log("Serveur démarré sur le port " + PORT);
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    ClientHandler handler = new ClientHandler(socket);
+                    clients.add(handler);
+                    new Thread(handler).start();
                 }
-            }
-        }
-        getGui().log("Message diffuse par " + sender.getUsername() + ": " + message);
-    }
-
-    static void sendPrivateMessage(String message, String recipient, ClientHandler sender) {
-        synchronized (getClients()) {
-            boolean recipientFound = false;
-            for (ClientHandler client : getClients()) {
-                if (client.getUsername().equals(recipient)) {
-                    client.sendMessage("[Prive de " + sender.getUsername() + "]: " + message);
-                    recipientFound = true;
-                    break;
-                }
-            }
-            if (!recipientFound) {
-                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecte.");
-                sender.sendMessage("Utilisateurs connectes: " + getConnectedUsers());
-            }
-        }
-        getGui().log("Message prive de " + sender.getUsername() + " a " + recipient + ": " + message);
-    }
-
-    static void broadcastFile(String fileName, byte[] fileData, ClientHandler sender) {
-        synchronized (getClients()) {
-            for (ClientHandler client : getClients()) {
-                if (client != sender) {
-                    client.sendFile(fileName, fileData);
-                }
-            }
-        }
-        getGui().log("Fichier diffuse par " + sender.getUsername() + ": " + fileName);
-    }
-
-    static void sendPrivateFile(String fileName, byte[] fileData, String recipient, ClientHandler sender) {
-        synchronized (getClients()) {
-            boolean recipientFound = false;
-            for (ClientHandler client : getClients()) {
-                if (client.getUsername().equals(recipient)) {
-                    client.sendFile(fileName, fileData);
-                    recipientFound = true;
-                    break;
-                }
-            }
-            if (!recipientFound) {
-                sender.sendMessage("Erreur: L'utilisateur '" + recipient + "' n'est pas connecte.");
-            }
-        }
-        getGui().log("Fichier prive de " + sender.getUsername() + " a " + recipient + ": " + fileName);
-    }
-
-    static String getConnectedUsers() {
-        StringBuilder userList = new StringBuilder();
-        synchronized (getClients()) {
-            for (ClientHandler client : getClients()) {
-                userList.append(client.getUsername()).append(", ");
-            }
-        }
-        return userList.toString();
-    }
-
-    static void updateUserList() {
-        String list = getConnectedUsers();
-        synchronized (getClients()) {
-            for (ClientHandler client : getClients()) {
-                client.sendMessage("Utilisateurs connectes: " + list);
-            }
-        }
-    }
-
-    static void removeClient(ClientHandler client) {
-        getClients().remove(client);
-        updateUserList();
-        getGui().log("Deconnexion: " + client.getUsername());
-    }
-
-    public static Set<ClientHandler> getClients() {
-        return clients;
-    }
-
-    public static void setClients(Set<ClientHandler> clients) {
-        ChatServer.clients = clients;
-    }
-
-    public static ChatServerGUI getGui() {
-		return gui;
-	}
-	public static void setGui(ChatServerGUI gui) {
-		ChatServer.gui = gui;
-	}
-
-	// Interface graphique pour le serveur
-    static class ChatServerGUI extends JFrame {
-        private JTextArea logArea;
-
-        public ChatServerGUI() {
-            setTitle("Serveur de Chat");
-            setSize(600, 400);
-            setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-
-            logArea = new JTextArea();
-            logArea.setEditable(false);
-            JScrollPane scrollPane = new JScrollPane(logArea);
-
-            add(scrollPane, BorderLayout.CENTER);
-
-            setVisible(true);
-        }
-
-        public void log(String message) {
-            SwingUtilities.invokeLater(() -> {
-                logArea.append(message + "\n");
-            });
-        }
-    }
-}
-
-class ClientHandler implements Runnable {
-    private Socket socket;
-    private DataInputStream in;
-    private DataOutputStream out;
-    private String username;
-
-    public ClientHandler(Socket socket) {
-        this.socket = socket;
-        try {
-            in = new DataInputStream(socket.getInputStream());
-            out = new DataOutputStream(socket.getOutputStream());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public String getUsername() {
-        return username;
-    }
-
-    public void run() {
-        try {
-            // Demander l'identifiant de l'utilisateur
-            out.writeUTF("Entrez votre nom d'utilisateur:");
-            username = in.readUTF();
-            
-            // Mettre a jour la liste des utilisateurs connectes
-            ChatServer.updateUserList();
-            
-            // Log de la nouvelle connexion avec le nom d'utilisateur
-            ChatServer.getGui().log("Nouvelle connexion: " + username);
-
-            while (true) {
-                String type = in.readUTF();
-                if (type.equals("message")) {
-                    String msg = in.readUTF();
-                    if (msg.equalsIgnoreCase("exit")) {
-                        break;
-                    }
-                    ChatServer.broadcastMessage(msg, this);
-                } else if (type.equals("private")) {
-                    String recipient = in.readUTF();
-                    String msg = in.readUTF();
-                    ChatServer.sendPrivateMessage(msg, recipient, this);
-                } else if (type.equals("checkUser")) {
-                    String recipient = in.readUTF();
-                    boolean userExists = false;
-                    synchronized (ChatServer.getClients()) {
-                        for (ClientHandler client : ChatServer.getClients()) {
-                            if (client.getUsername().equals(recipient)) {
-                                userExists = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (userExists) {
-                        out.writeUTF("valid");
-                    } else {
-                        out.writeUTF(ChatServer.getConnectedUsers());
-                    }
-                } else if (type.equals("file")) {
-                    String recipient = in.readUTF(); // "all" pour broadcast, sinon le nom du destinataire
-                    String fileName = in.readUTF();
-                    int length = in.readInt();
-                    byte[] fileData = new byte[length];
-                    in.readFully(fileData);
-
-                    if (recipient.equals("all")) {
-                        ChatServer.broadcastFile(fileName, fileData, this);
-                    } else {
-                        ChatServer.sendPrivateFile(fileName, fileData, recipient, this);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            try {
-                socket.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                log("Erreur serveur: " + e.getMessage());
             }
-            ChatServer.removeClient(this);
+        }).start();
+    }
+
+    private static void log(String message) {
+        SwingUtilities.invokeLater(() -> logArea.append(message + "\n"));
+    }
+
+    private static void broadcastMessage(String message, ClientHandler sender) {
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client != sender) {
+                    client.sendMessage("message", "[" + sender.getUsername() + "]: " + message);
+                }
+            }
+        }
+        log("Diffusion par " + sender.getUsername() + ": " + message);
+    }
+
+    private static void sendPrivateMessage(String message, String recipient, ClientHandler sender) {
+        boolean found = false;
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client.getUsername().equals(recipient)) {
+                    client.sendMessage("message", "[Privé de " + sender.getUsername() + "]: " + message);
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            sender.sendMessage("message", "Erreur: Utilisateur '" + recipient + "' non trouvé.");
+        } else {
+            log("Privé de " + sender.getUsername() + " à " + recipient + ": " + message);
         }
     }
 
-    public void sendMessage(String msg) {
-        try {
-            out.writeUTF("message");
-            out.writeUTF(msg);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private static void broadcastFile(String fileName, byte[] fileData, ClientHandler sender) {
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client != sender) {
+                    client.sendFile(fileName, fileData);
+                }
+            }
+        }
+        log("Fichier '" + fileName + "' diffusé par " + sender.getUsername());
+    }
+
+    private static void sendPrivateFile(String fileName, byte[] fileData, String recipient, ClientHandler sender) {
+        boolean found = false;
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client.getUsername().equals(recipient)) {
+                    client.sendFile(fileName, fileData);
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            sender.sendMessage("message", "Erreur: Utilisateur '" + recipient + "' non trouvé.");
+        } else {
+            log("Fichier '" + fileName + "' envoyé par " + sender.getUsername() + " à " + recipient);
         }
     }
 
-    public void sendFile(String fileName, byte[] fileData) {
-        try {
-            out.writeUTF("file");
-            out.writeUTF(fileName);
-            out.writeInt(fileData.length);
-            out.write(fileData);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private static void sendUserList(ClientHandler requester) {
+        synchronized (clients) {
+            try {
+                requester.getOut().writeUTF("users");
+                requester.getOut().writeInt(clients.size());
+                for (ClientHandler client : clients) {
+                    requester.getOut().writeUTF(client.getUsername());
+                }
+            } catch (IOException e) {
+                log("Erreur envoi liste utilisateurs à " + requester.getUsername());
+            }
+        }
+    }
+
+    static class ClientHandler implements Runnable {
+        private Socket socket;
+        private DataInputStream in;
+        private DataOutputStream out;
+        private String username;
+
+        public ClientHandler(Socket socket) {
+            this.socket = socket;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public DataOutputStream getOut() {
+            return out;
+        }
+
+        public void sendMessage(String type, String msg) {
+            try {
+                out.writeUTF(type);
+                out.writeUTF(msg);
+            } catch (IOException e) {
+                log("Erreur envoi message à " + username);
+            }
+        }
+
+        public void sendFile(String fileName, byte[] data) {
+            try {
+                out.writeUTF("file");
+                out.writeUTF(fileName);
+                out.writeInt(data.length);
+                out.write(data);
+            } catch (IOException e) {
+                log("Erreur envoi fichier à " + username);
+            }
+        }
+
+        @Override
+        public void run() {
+            try {
+                in = new DataInputStream(socket.getInputStream());
+                out = new DataOutputStream(socket.getOutputStream());
+
+                username = in.readUTF();
+                log(username + " connecté.");
+
+                while (true) {
+                    String command = in.readUTF();
+
+                    if (command.equals("message")) {
+                        String msg = in.readUTF();
+                        ChatServer.broadcastMessage(msg, this);
+                    } else if (command.equals("private")) {
+                        String recipient = in.readUTF();
+                        String msg = in.readUTF();
+                        ChatServer.sendPrivateMessage(msg, recipient, this);
+                    } else if (command.equals("file")) {
+                        String recipient = in.readUTF();
+                        String fileName = in.readUTF();
+                        int length = in.readInt();
+                        byte[] fileData = new byte[length];
+                        in.readFully(fileData);
+
+                        if (recipient.equals("all")) {
+                            ChatServer.broadcastFile(fileName, fileData, this);
+                        } else {
+                            ChatServer.sendPrivateFile(fileName, fileData, recipient, this);
+                        }
+                    } else if (command.equals("getUsers")) {
+                        ChatServer.sendUserList(this);
+                    }
+                }
+            } catch (IOException e) {
+                log("Déconnexion de " + username);
+            } finally {
+                try {
+                    socket.close();
+                } catch (IOException ignored) {}
+                clients.remove(this);
+            }
         }
     }
 }
