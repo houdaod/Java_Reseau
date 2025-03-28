@@ -1,3 +1,4 @@
+
 package Chat;
 
 import java.awt.BorderLayout;
@@ -13,9 +14,11 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.swing.JFrame;
+import javax.swing.JOptionPane;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+
 
 public class ChatServer {
     private static final int PORT = 12345;
@@ -41,8 +44,7 @@ public class ChatServer {
 
         frame.add(scrollPane, BorderLayout.CENTER);
         frame.setVisible(true);
-
-        log("Interface serveur prête.");
+        log("Serveur démarré. En attente de connexions...");
     }
 
     private static void startServer() {
@@ -57,6 +59,9 @@ public class ChatServer {
                 }
             } catch (IOException e) {
                 log("Erreur serveur: " + e.getMessage());
+                JOptionPane.showMessageDialog(null, 
+                    "Erreur du serveur: " + e.getMessage(), 
+                    "Erreur", JOptionPane.ERROR_MESSAGE);
             }
         }).start();
     }
@@ -73,7 +78,7 @@ public class ChatServer {
                 }
             }
         }
-        log("Diffusion par " + sender.getUsername() + ": " + message);
+        log("Message diffusé par " + sender.getUsername() + ": " + message);
     }
 
     private static void sendPrivateMessage(String message, String recipient, ClientHandler sender) {
@@ -88,9 +93,7 @@ public class ChatServer {
             }
         }
         if (!found) {
-            sender.sendMessage("message", "Erreur: Utilisateur '" + recipient + "' non trouvé.");
-        } else {
-            log("Privé de " + sender.getUsername() + " à " + recipient + ": " + message);
+            sender.sendMessage("error", "Utilisateur '" + recipient + "' non trouvé.");
         }
     }
 
@@ -102,7 +105,7 @@ public class ChatServer {
                 }
             }
         }
-        log("Fichier '" + fileName + "' diffusé par " + sender.getUsername());
+        log("Fichier diffusé par " + sender.getUsername() + ": " + fileName);
     }
 
     private static void sendPrivateFile(String fileName, byte[] fileData, String recipient, ClientHandler sender) {
@@ -117,9 +120,9 @@ public class ChatServer {
             }
         }
         if (!found) {
-            sender.sendMessage("message", "Erreur: Utilisateur '" + recipient + "' non trouvé.");
+            sender.sendMessage("error", "Utilisateur '" + recipient + "' non trouvé.");
         } else {
-            log("Fichier '" + fileName + "' envoyé par " + sender.getUsername() + " à " + recipient);
+            log("Fichier privé envoyé de " + sender.getUsername() + " à " + recipient + ": " + fileName);
         }
     }
 
@@ -160,7 +163,7 @@ public class ChatServer {
                 out.writeUTF(type);
                 out.writeUTF(msg);
             } catch (IOException e) {
-                log("Erreur envoi message à " + username);
+                log("Erreur envoi à " + username);
             }
         }
 
@@ -183,17 +186,24 @@ public class ChatServer {
 
                 username = in.readUTF();
                 log(username + " connecté.");
+                broadcastMessage(username + " a rejoint le chat.", this);
 
                 while (true) {
                     String command = in.readUTF();
 
-                    if (command.equals("message")) {
+                    if (command.equals("exit")) {
+                        break;
+                    } else if (command.equals("message")) {
                         String msg = in.readUTF();
-                        ChatServer.broadcastMessage(msg, this);
+                        if (msg.equalsIgnoreCase("exit")) {
+                            out.writeUTF("exit");
+                            break;
+                        }
+                        broadcastMessage(msg, this);
                     } else if (command.equals("private")) {
                         String recipient = in.readUTF();
                         String msg = in.readUTF();
-                        ChatServer.sendPrivateMessage(msg, recipient, this);
+                        sendPrivateMessage(msg, recipient, this);
                     } else if (command.equals("file")) {
                         String recipient = in.readUTF();
                         String fileName = in.readUTF();
@@ -202,18 +212,22 @@ public class ChatServer {
                         in.readFully(fileData);
 
                         if (recipient.equals("all")) {
-                            ChatServer.broadcastFile(fileName, fileData, this);
+                            broadcastFile(fileName, fileData, this);
                         } else {
-                            ChatServer.sendPrivateFile(fileName, fileData, recipient, this);
+                            sendPrivateFile(fileName, fileData, recipient, this);
                         }
                     } else if (command.equals("getUsers")) {
-                        ChatServer.sendUserList(this);
+                        sendUserList(this);
                     }
                 }
             } catch (IOException e) {
-                log("Déconnexion de " + username);
+                log("Erreur avec " + username + ": " + e.getMessage());
             } finally {
                 try {
+                    if (username != null) {
+                        broadcastMessage(username + " a quitté le chat.", this);
+                        log(username + " déconnecté.");
+                    }
                     socket.close();
                 } catch (IOException ignored) {}
                 clients.remove(this);
